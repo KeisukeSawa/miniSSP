@@ -34,7 +34,7 @@ type WinNotice struct {
 }
 
 // DSPにリクエストを送る
-func SendRequest(url string, sendData interface{}) (*http.Response, error) {
+func sendRequest(url string, sendData interface{}) (*http.Response, error) {
 
 	send, err := json.Marshal(sendData)
 	if err != nil {
@@ -59,7 +59,7 @@ func SendRequest(url string, sendData interface{}) (*http.Response, error) {
 		return nil, err
 	}
 
-	return response, err
+	return response, nil
 
 }
 
@@ -69,20 +69,21 @@ func PostWinNotice(url, request_id string, price int) error {
 	// WinNoticeのJSONデータ
 	winNoticeJson := WinNotice{request_id, price}
 
-	response, err := SendRequest(url, winNoticeJson)
-
+	response, err := sendRequest(url, winNoticeJson)
+	if err != nil {
+		return err
+	}
 	fmt.Println(response)
 
-	return err
+	return nil
 
 }
 
 // DSPに対してリクエストを送り、レスポンスを受け取り返り値で返す
-func ComminucationDSP(url string, dspRequestJson interface{}) (string, string, int, error) {
+func communicateDSP(url string, dspRequestJson interface{}) (string, string, int, error) {
 
-	response, err := SendRequest(url, dspRequestJson)
+	response, err := sendRequest(url, dspRequestJson)
 	if err != nil {
-
 		return "", "", 0, err
 	}
 
@@ -125,13 +126,15 @@ func PostRequest(url, ssp_name, request_id string, app_id int) (string, string, 
 	Url := ""
 	Price := 0
 	err := errors.New("")
-	fmt.Println(err) // Warningをなくすため
 
 	ch := make(chan string)
 	for i := 0; i < 1; i++ {
 		go func() {
 			// DSPに通信して、リクエストを得る
-			Request_id, Url, Price, err = ComminucationDSP(url, dspRequestJson)
+			Request_id, Url, Price, err = communicateDSP(url, dspRequestJson)
+			if err != nil {
+				return
+			}
 			ch <- "ok"
 		}()
 	}
@@ -215,7 +218,7 @@ func SSPHandle(w http.ResponseWriter, req *http.Request) {
 	const request_count = 3
 
 	// ここでfor文か並列処理
-	url := []string{"http://10.100.100.20/req", "http://10.100.100.22/req", "http://10.100.100.24/req"}
+	url := []string{"http://10.100.100.20", "http://10.100.100.22", "http://10.100.100.24"}
 
 	// app_idをintに変換
 	app_id := int(appid["app_id"].(float64))
@@ -230,12 +233,12 @@ func SSPHandle(w http.ResponseWriter, req *http.Request) {
 	for i := 0; i < request_count; i++ {
 		wg.Add(1)
 		go func(j int) {
-			all_request_id[j], all_url[j], all_price[j], err = PostRequest(url[j], ssp_name, request_id, app_id)
+			defer wg.Done()
+			all_request_id[j], all_url[j], all_price[j], err = PostRequest(url[j]+"/req", ssp_name, request_id, app_id)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			defer wg.Done()
 		}(i)
 	}
 
@@ -254,11 +257,10 @@ func SSPHandle(w http.ResponseWriter, req *http.Request) {
 		} else if second_Price < all_price[i] {
 			second_Price = all_price[i]
 		}
-
 	}
 
-	// 2ndPrice（入札金額）をつけて、WinNoticeを返す(時間があったら)
-	// PostWinNotice(tender_Advertisement_Url, tender_request_id, second_Price)
+	// 2ndPrice（入札金額）をつけて、WinNoticeを返す
+	PostWinNotice(tender_Advertisement_Url+"/win", tender_request_id, second_Price)
 
 	// レスポンスが1つだった時の処理（多分いらないからやらない）
 
