@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -77,18 +78,11 @@ func PostWinNotice(url, request_id string, price int) error {
 }
 
 // DSPに対してリクエストを送り、レスポンスを受け取り返り値で返す
-func PostRequest(url, ssp_name, request_id string, app_id int) (string, string, int, error) {
-
-	// 現在時刻の計算
-	nowtime := time.Now()
-	const layout = "20060102-150405.0000"
-	reqest_time := nowtime.Format(layout)
-
-	// DSPRequestのJSONデータ（DSPに対してリクエストを送る）
-	dspRequestJson := DSPRequest{ssp_name, reqest_time, request_id, app_id}
+func ComminucationDSP(url string, dspRequestJson interface{}) (string, string, int, error) {
 
 	response, err := SendRequest(url, dspRequestJson)
 	if err != nil {
+
 		return "", "", 0, err
 	}
 
@@ -112,8 +106,50 @@ func PostRequest(url, ssp_name, request_id string, app_id int) (string, string, 
 
 	defer response.Body.Close()
 
-	// 返り値でDSPからの結果を返す
 	return dspresponse["request_id"].(string), dspresponse["url"].(string), int(dspresponse["price"].(float64)), err
+
+}
+
+// DSPに対してリクエストを送り、レスポンスを受け取り返り値で返す
+func PostRequest(url, ssp_name, request_id string, app_id int) (string, string, int, error) {
+
+	// 現在時刻の計算
+	nowtime := time.Now()
+	const layout = "20060102-150405.0000"
+	reqest_time := nowtime.Format(layout)
+
+	// DSPRequestのJSONデータ（DSPに対してリクエストを送る）
+	dspRequestJson := DSPRequest{ssp_name, reqest_time, request_id, app_id}
+
+	Request_id := ""
+	Url := ""
+	Price := 0
+	err := errors.New("")
+	fmt.Println(err) // Warningをなくすため
+
+	ch := make(chan string)
+	for i := 0; i < 1; i++ {
+		go func() {
+			// DSPに通信して、リクエストを得る
+			Request_id, Url, Price, err = ComminucationDSP(url, dspRequestJson)
+			ch <- "ok"
+		}()
+	}
+
+	// タイムアウトを設定する
+	timeout := time.After(100 * time.Millisecond)
+
+	for i := 0; i < 1; i++ {
+		select {
+		case result := <-ch:
+			fmt.Println(result)
+		case <-timeout:
+			err := errors.New("timeout")
+			return "", "", 0, err
+		}
+	}
+
+	return Request_id, Url, Price, nil
 
 }
 
@@ -221,7 +257,7 @@ func SSPHandle(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// 2ndPrice（入札金額）をつけて、WinNoticeを返す(時間があったら)
-	PostWinNotice(tender_Advertisement_Url, tender_request_id, second_Price)
+	// PostWinNotice(tender_Advertisement_Url, tender_request_id, second_Price)
 
 	// レスポンスが1つだった時の処理（多分いらないからやらない）
 
@@ -235,10 +271,10 @@ func SSPHandle(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+
 	w.Write(res)
 	io.WriteString(w, "\n")
-
-	w.WriteHeader(http.StatusOK)
 
 }
 
@@ -246,4 +282,3 @@ func main() {
 	http.HandleFunc("/ssp", SSPHandle)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
-
