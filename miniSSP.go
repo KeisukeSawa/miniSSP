@@ -208,6 +208,7 @@ func SSPHandle(w http.ResponseWriter, req *http.Request) {
 
 	// 1stPriceのrequest_idを格納する変数
 	tender_request_id := ""
+	fmt.Println(tender_request_id)
 
 	// 複数のDSPに対してRequestをPOST、レスポンスを受け取る
 	// リクエストを送るDSPの個数
